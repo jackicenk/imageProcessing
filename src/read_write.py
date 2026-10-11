@@ -44,6 +44,8 @@ def mypgmread (file) :
 
         return pikseller, column, row, greyval
 
+# ---------------------------------------------------------------- LAB01
+
 def myImageScale(orj_pixel, greyval = 255):
     #olcekleme:  fm = f - min(f)   ve   fs = K * (fm / max(fm))
     min_of_pixel = min(orj_pixel)
@@ -190,3 +192,135 @@ def myImageShowMulti(images, basliklar, column, row, greyval = 255, sutun = 3):
     plt.tight_layout()
     plt.show()
 
+
+# ---------------------------------------------------------------- LAB02
+
+def myLaplacianMask(komsu = 4):
+    #Gonzalez Sekil 3.37'deki Laplacian cekirdekleri.
+    #komsu = 4 -> Denklem (3.6-6), 90 derece katlarinda izotropik
+    #komsu = 8 -> kosegen terimler de eklenmis hali, 45 derece katlarinda izotropik
+    #Iki maskenin de toplami sifirdir, bu yuzden myImageCorrelation bolme yapmaz.
+    #Merkez katsayi negatif oldugu icin keskinlestirmede c = -1 kullanilir.
+    if komsu == 8 :
+        return [1,  1, 1,
+                1, -8, 1,
+                1,  1, 1]
+    return [0,  1, 0,
+            1, -4, 1,
+            0,  1, 0]
+
+def myImageClip(img, greyval = 255):
+    #Aralik disina tasan degerleri sinirlara kirpar: negatifler 0, greyval ustu greyval olur.
+    #myImageScale'den farki, degerleri yeniden DAGITMAMASIDIR; sadece uclari keser.
+    #Sekil 3.38(b)'de kitabin "negatif degerlerin hepsi ekran tarafindan 0'a kirpilir"
+    #dedigi durum tam olarak budur.
+    clip_pixel = []
+    for pixel in img :
+        if pixel < 0 :
+            clip_pixel.append(0)
+        elif pixel > greyval :
+            clip_pixel.append(greyval)
+        else :
+            clip_pixel.append(round(pixel))
+    return clip_pixel
+
+
+def myImageSharpen(file, mask, c = -1):
+    #Denklem (3.6-7):  g(x,y) = f(x,y) + c * laplacian(x,y)
+    #c = -1 merkez katsayisi negatif olan maskeler icindir (Sekil 3.37 a ve b).
+    #|c| buyudukce keskinlestirme artar; cok buyurse kenarlarda asiri vurgu ve bozulma olusur.
+    old_pixel, column, row, greyval = mypgmread(file)
+    #maskenin toplami sifir oldugu icin korelasyon ham degerleri dondurur (negatifler dahil)
+    lap_pixel, column, row, greyval = myImageCorrelation(file, mask)
+
+    sharp_pixel = []
+    #iki listeyi ayni anda gezmek gerektigi icin deger degil indeks uzerinden donulur
+    for k in range(len(old_pixel)) :
+        sharp_pixel.append(old_pixel[k] + c * lap_pixel[k])
+
+    #toplama sonucu 0-greyval araligi disina cikabilir, kirpilarak geri getirilir
+    return myImageClip(sharp_pixel, greyval), column, row, greyval
+
+
+def myGaussianMask(m, sigma):
+    #m x m Gauss cekirdegi:  w(s,t) = e^(-(s^2 + t^2) / (2*sigma^2))
+    #Merkezden uzaklastikca agirlik azalir; ortalama maskesinden farki budur.
+    #Katsayilar normalize edilmez, cunku myImageCorrelation zaten maskenin
+    #toplamina boluyor (mask_sum). Boylece agirliklarin toplami 1 olmus gibi davranir.
+    a = m // 2
+    mask = []
+    for s in range(-a, a + 1) :
+        for t in range(-a, a + 1) :
+            mask.append(math.exp(-(s * s + t * t) / (2 * sigma * sigma)))
+    return mask
+
+def myImageUnsharpMask(file, mask):
+    #Denklem (3.6-8):  g_mask(x,y) = f(x,y) - f_bulanik(x,y)
+    #Sonuc hem negatif hem pozitif deger icerir; gosterilecekse myImageScale gerekir.
+    old_pixel, column, row, greyval = mypgmread(file)
+    blurred_pixel, column, row, greyval = myImageCorrelation(file, mask)
+
+    unsharp_pixel = []
+    for k in range(len(old_pixel)) :
+        unsharp_pixel.append(old_pixel[k] - blurred_pixel[k])
+
+    return unsharp_pixel, column, row, greyval
+
+def myImageHighboost(file, mask, k = 1):
+    #Denklem (3.6-9):  g(x,y) = f(x,y) + k * g_mask(x,y)
+    #k = 1  -> unsharp masking
+    #k > 1  -> highboost filtreleme
+    #k < 1  -> maskenin katkisini azaltir
+    #k buyudukce keskinlik artar; cok buyurse sonuc negatife duser ve kenarlarda
+    #koyu haleler olusur (kitap k = 4.5'i tum degerleri pozitif tutan sinir olarak veriyor).
+    old_pixel, column, row, greyval = mypgmread(file)
+    unsharp_pixel, column, row, greyval = myImageUnsharpMask(file, mask)
+
+    boost_pixel = []
+    for n in range(len(old_pixel)) :
+        boost_pixel.append(old_pixel[n] + k * unsharp_pixel[n])
+
+    return myImageClip(boost_pixel, greyval), column, row, greyval
+
+def myImageHistogram(img, greyval = 255):
+    #Denklem (3.3-7):  p_r(r_k) = n_k / MN
+    #Her gri seviyenin goruntudeki goreli siklgi. Toplami 1'dir.
+    #Donen liste greyval + 1 elemanlidir (8 bit icin 0..255 arasi 256 seviye).
+    sayim = [0] * (greyval + 1)
+    for pixel in img :
+        sayim[pixel] = sayim[pixel] + 1
+
+    MN = len(img)
+    hist = []
+    for n in sayim :
+        hist.append(n / MN)
+    return hist
+
+def myImageCDF(hist):
+    #Kumulatif dagilim: cdf[k] = hist[0] + hist[1] + ... + hist[k]
+    #Normalize histogramin toplami 1 oldugu icin cdf 0 ile 1 arasinda artar.
+    cdf = []
+    toplam = 0
+    for p in hist :
+        toplam = toplam + p
+        cdf.append(toplam)
+    return cdf
+
+def myImageHistEqualization(file):
+    #Denklem (3.3-8):  s_k = (L-1) * cdf(r_k)
+    #Donusum fonksiyonunun kendisi CDF'tir; CDF'in dik oldugu yerde (piksellerin
+    #yogunlastigi seviyelerde) cikis degerleri genis bir araliga yayilir, yatay
+    #oldugu yerde sikisir. Sonucta histogram tum skalaya dagilir.
+    old_pixel, column, row, greyval = mypgmread(file)
+    cdf = myImageCDF(myImageHistogram(old_pixel, greyval))
+
+    #her gri seviye icin cikis degerini bir kez hesapla (256 deger), sonra tabloyu kullan
+    donusum = []
+    for k in range(greyval + 1) :
+        donusum.append(round(greyval * cdf[k]))
+
+    eq_pixel = []
+    for pixel in old_pixel :
+        eq_pixel.append(donusum[pixel])
+
+    return eq_pixel, column, row, greyval
