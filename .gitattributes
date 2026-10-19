@@ -1,0 +1,2 @@
+# PGM dosyalari ikili veridir; satir sonu donusumu pikselleri bozar
+*.pgm binary
